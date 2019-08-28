@@ -4,6 +4,7 @@ MS SQL Server database backend for Django.
 import os
 import re
 import time
+import struct
 
 from django.core.exceptions import ImproperlyConfigured
 from django import VERSION
@@ -42,6 +43,13 @@ from .operations import DatabaseOperations
 from .schema import DatabaseSchemaEditor
 
 EDITION_AZURE_SQL_DB = 5
+
+
+def handle_datetimeoffset(dto_value):
+    # ref: https://github.com/mkleehammer/pyodbc/issues/134#issuecomment-281739794
+    tup = struct.unpack("<6hI2h", dto_value)  # e.g., (2017, 3, 16, 10, 35, 18, 0, -6, 0)
+    tweaked = [tup[i] // 100 if i == 6 else tup[i] for i in range(len(tup))]
+    return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:07d} {:+03d}:{:02d}".format(*tweaked)
 
 
 def encode_connection_string(fields):
@@ -298,6 +306,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 conn = Database.connect(connstr,
                                         unicode_results=unicode_results,
                                         timeout=timeout)
+
+                conn.add_output_converter(-155, handle_datetimeoffset)
+
             except Exception as e:
                 for error_number in self._transient_error_numbers:
                     if error_number in e.args[1]:
